@@ -17,6 +17,23 @@ export const categoryMap = {
 };
 
 export const settings = {
+  endpoints: {
+    products: '/product/',
+    product: (id: string) => `/product/${id}`,
+    order: '/order/',
+  },
+  storageKeys: {
+    basket: 'weblarek:basket',
+  },
+  labels: {
+    currency: 'синапсов',
+    freePrice: 'Бесценно',
+  },
+} as const;
 
-};
 
+export const ENDPOINTS = {
+  products: API_URL + settings.endpoints.products,
+  product: (id: string) => API_URL + settings.endpoints.product(id),
+  order: API_URL + settings.endpoints.order,
+} as const;
