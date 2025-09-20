@@ -183,31 +183,95 @@ VITE_API_ORIGIN=https://larek-api.nomoreparties.co
 
 ---
 
-## Классы слоя «Модели» и коммуникаций
+# Классы слоя «Модели» и коммуникаций
 
-### `Products` — каталог товаров (`src/components/Models/Products.ts`)
-- **Назначение:** хранение массива `IProduct[]`.  
-- **Методы:** `setItems(items)`, `getItems()`, `getById(id)`, `clear()`; геттер `length`.  
-- **Зависимости:** нет (не знает про DOM/HTTP).
+## `Products` — каталог товаров  
+`src/components/Models/Products.ts`
 
-### `Basket` — корзина (`src/components/Models/Basket.ts`)
-- **Назначение:** хранение `items` и `total`.  
-- **Методы:** `setItems(items)`, `add(item)`, `remove(id)`, `clear()`, `getState()` (возвращает копию состояния).  
-- **Особенности:** `total` считается автоматически **только по числовым ценам** (`null` не суммируется).  
-- **Зависимости:** нет.
+**Назначение:** типобезопасное хранилище массива товаров `IProduct[]` без привязки к DOM/HTTP.
 
-### `Order` — данные покупателя (`src/components/Models/Order.ts`)
-- **Назначение:** хранение черновика `IOrderDraft`.  
-- **Методы:** `setDraft(draft)`, `patchDraft(patch)`, `getDraft()`, `reset()`.  
-- **Зависимости:** нет.
+**Поля:**
+- `private items: IProduct[] = []` — текущий каталог. Доступ только через методы, чтобы исключить наружные мутации.
 
-### `ShopApi` — связь с сервером (`src/components/Services/ShopApi.ts`)
-- **Назначение:** изолированный коммуникационный слой.  
-- **Зависимость:** принимает `api: IApi` (композиция), использует `get/post`.  
-- **Маршруты:** берёт из `ENDPOINTS` (см. `src/utils/constants.ts`).  
-- **Методы:**
-  - `getProducts()` — `GET /product/` (или `/catalog`), возвращает `IProduct[]`.
-  - `createOrder(payload)` — `POST /order/`, принимает `IOrderPayload`, возвращает `IOrderResponse`.
+**Методы:**
+- `setItems(items: IProduct[]): void` — принимает массив и сохраняет **копию** (`[...items]`) во внутреннее состояние. Некорректный ввод приводит к пустому каталогу.
+- `getItems(): IProduct[]` — возвращает **новый массив-копию** каталога (иммутабельность внешнего доступа).
+- `getById(id: string): IProduct | undefined` — находит товар по `id`; если не найден, возвращает `undefined`.
+- `clear(): void` — очищает каталог (`[]`).
+- `get length(): number` — геттер, количество товаров в каталоге.
+
+**Зависимости:** отсутствуют.
+
+---
+
+## `Basket` — корзина  
+`src/components/Models/Basket.ts`
+
+**Назначение:** хранит текущие позиции и суммарную стоимость заказа.
+
+**Поля:**
+- `private state: IBasketState = { items: [], total: 0 }`, где  
+  - `items: IBasketItem[]` — массив позиций (минимум `id` и `price`, где `price: number | null`),  
+  - `total: number` — суммарная стоимость.
+
+**Методы:**
+- `setItems(items: IBasketItem[]): void` — полностью заменяет список позиций **копией** входных данных и **пересчитывает** `total`.
+- `add(item: IBasketItem): void` — добавляет **копию** позиции в конец списка и **пересчитывает** `total`. Дедупликация/количество одинаковых позиций не навязываются моделью.
+- `remove(id: string): void` — удаляет позицию(и) с указанным `id` и **пересчитывает** `total`.
+- `clear(): void` — сбрасывает состояние до `{ items: [], total: 0 }`.
+- `getState(): IBasketState` — возвращает **глубокую копию** плоского состояния (массив позиций копируется поэлементно).
+
+**Алгоритм пересчёта (`private recalc()`):**  
+`total = items.reduce((s, i) => s + (i.price ?? 0), 0)` — в сумму входят **только числовые цены**; `null` трактуется как `0`.
+
+**Зависимости:** отсутствуют.
+
+---
+
+## `Order` — данные покупателя  
+`src/components/Models/Order.ts`
+
+**Назначение:** хранит и изменяет **черновик** данных заказа.
+
+**Поля:**
+- `private draft: IOrderDraft = {}` — частично заполненная структура, включающая `payment`, `address`, `email`, `phone` и т. п. (см. типы проекта).
+
+**Методы:**
+- `setDraft(draft: IOrderDraft): void` — полностью заменяет черновик **копией** переданного объекта.
+- `patchDraft(patch: Partial<IOrderDraft>): void` — поверхностно дополняет/обновляет поля черновика (`{ ...draft, ...patch }`).
+- `getDraft(): IOrderDraft` — возвращает **копию** черновика для безопасного чтения.
+- `reset(): void` — очищает черновик до пустого объекта.
+
+**Зависимости:** отсутствуют.
+
+---
+
+## `ShopApi` — коммуникации с сервером  
+`src/components/Services/ShopApi.ts`
+
+**Назначение:** изолированный слой HTTP-коммуникаций с API магазина. Не зависит от DOM и конкретных моделей — опирается на **контракты типов** и таблицу маршрутов.
+
+**Поля и зависимости:**
+- `constructor(private readonly api: IApi) {}` — принимает абстрактный HTTP-клиент `IApi` (композиция), что упрощает тестирование и подмену транспорта (fetch/axios/моки).
+
+**Маршруты:** берутся из `ENDPOINTS` (`src/utils/constants.ts`), например:
+- `ENDPOINTS.products` — список товаров,
+- `ENDPOINTS.order` — создание заказа,
+- опционально `ENDPOINTS.product(id)` — получение одного товара.
+
+**Методы:**
+- `async getProducts(): Promise<IProduct[]>` — `GET` на `ENDPOINTS.products`. Ожидает `IProductsResponse` с полем `items: IProduct[]`, возвращает `items`.  
+  *Операция:* загрузка каталога с сервера.
+- `async createOrder(payload: IOrderPayload): Promise<IOrderResponse>` — `POST` на `ENDPOINTS.order` с телом `payload`. Возвращает ответ оформления заказа `IOrderResponse` (например, `id` и финальный `total`).  
+  *Операция:* создание заказа на бэкенде.
+
+**Ключевые контракты:**
+- `IApi` — транспорт:  
+  `get<T>(uri: string): Promise<T>` и `post<T>(uri: string, data: object, method?: 'POST'|'PUT'|'DELETE'): Promise<T>`
+- `IProduct` — товар (идентификатор, название, `price: number | null`, описание, изображение, категория и т. д.).
+- `IProductsResponse = IListResponse<IProduct>` — список (`{ total, items }`).
+- `IOrderPayload` — полезная нагрузка заказа: `items: { id; price }[]`, `total`, а также `payment`, `address`, `email`, `phone`.
+- `IOrderResponse` — результат создания заказа (например, `{ id, total }`).
 
 ---
 
