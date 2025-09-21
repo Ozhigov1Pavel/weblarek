@@ -1,25 +1,31 @@
-import type { IProduct } from '../../types/';
+import type { IProduct, ProductId } from '../../types';
+import type { IEvents } from '../base/Events';
 
 export class Products {
   private items: IProduct[] = [];
 
-  setItems(items: IProduct[]): void {
-    this.items = Array.isArray(items) ? [...items] : [];
+  constructor(private readonly events?: IEvents) {}
+
+  setItems(items: IProduct[]) {
+    this.items = Array.isArray(items) ? items.slice() : [];
+    this.events?.emit('products:changed', { items: this.getItems() });
   }
 
   getItems(): IProduct[] {
-    return [...this.items];
+    return this.items.slice();
   }
 
-  getById(id: string): IProduct | undefined {
-    return this.items.find(p => p.id === id);
+  getById(id?: ProductId): IProduct | undefined {
+    if (!id) return undefined;
+    return this.items.find((p) => p.id === id);
   }
 
-  clear(): void {
+  clear() {
     this.items = [];
+    this.events?.emit('products:changed', { items: [] });
   }
 
-  get length(): number {
+  get length() {
     return this.items.length;
   }
 }
