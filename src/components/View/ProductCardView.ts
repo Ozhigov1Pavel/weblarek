@@ -1,5 +1,5 @@
-import type { IEvents } from '../Events';
-import type { Price, ProductId } from '../../../types';
+import type { IEvents } from '../base/Events';
+import type { Price, ProductId } from '../../types';
 import { cloneTemplate } from './utils';
 import { BaseCardView } from './BaseCardView';
 

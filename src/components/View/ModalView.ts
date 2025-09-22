@@ -1,5 +1,5 @@
-import { Component } from '../Component';
-import type { IEvents } from '../Events';
+import { Component } from '../base/Component';
+import type { IEvents } from '../base/Events';
 
 export class ModalView extends Component<{ isOpen: boolean }> {
   private overlay: HTMLElement;

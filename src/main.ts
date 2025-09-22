@@ -1,4 +1,3 @@
-// src/main.ts
 import './scss/styles.scss';
 
 // MODELS
@@ -13,13 +12,16 @@ import { API_URL, CDN_URL } from './utils/constants';
 
 // EVENTS & VIEWS
 import { events } from './components/base/eventsBus';
-import { CatalogView } from './components/base/View/CatalogView';
-import { HeaderCartButtonView } from './components/base/View/HeaderCartButtonView';
-import { ModalView } from './components/base/View/ModalView';
-import { ProductPreviewView } from './components/base/View/ProductPreviewView';
-import { BasketView } from './components/base/View/BasketView';
-import { OrderStep1View } from './components/base/View/OrderStep1View';
-import { OrderStep2View } from './components/base/View/OrderStep2View';
+import { CatalogView } from './components/View/CatalogView';
+import { HeaderCartButtonView } from './components/View/HeaderCartButtonView';
+import { ModalView } from './components/View/ModalView';
+import { ProductCardView } from './components/View/ProductCardView';
+import { ProductPreviewView } from './components/View/ProductPreviewView';
+import { BasketView } from './components/View/BasketView';
+import { BasketItemView } from './components/View/BasketItemView';
+import { OrderStep1View } from './components/View/OrderStep1View';
+import { OrderStep2View } from './components/View/OrderStep2View';
+import { SuccessView } from './components/View/SuccessView';
 
 // TYPES
 import type { IProduct, IOrderPayload, ProductId } from './types';
@@ -28,15 +30,23 @@ import type { IProduct, IOrderPayload, ProductId } from './types';
 const productsModel = new Products(events);
 const basketModel = new Basket(events);
 const orderModel = new Order(events);
-const apiClient = new Api(API_URL); 
+
+const apiClient = new Api(API_URL);
 const shopApi = new ShopApi(apiClient);
 
 // VIEW-инстансы
 const modal = new ModalView(events);
 const headerCart = new HeaderCartButtonView(events);
-const catalog = new CatalogView(events);
+const catalog = new CatalogView();
 const basketView = new BasketView(events);
-headerCart.setState({ count: 0 });
+
+let isBasketOpen = false;
+let step1View: OrderStep1View | null = null;
+let step2View: OrderStep2View | null = null;
+
+headerCart.render({ count: 0 });
+
+
 const makeImageUrl = (s?: string) => {
   if (!s) return undefined;
   const file = s.replace(/^\/?images\//i, '').replace(/^\//, '');
@@ -45,44 +55,57 @@ const makeImageUrl = (s?: string) => {
 
 // -------------------- ПРЕЗЕНТЕР: события МОДЕЛЕЙ --------------------
 
-// 1) каталог обновился -> перерисовать список карточек
+
+
 events.on<{ items: IProduct[] }>('products:changed', ({ items }) => {
-  const viewItems = items.map((p) => ({
-    id: p.id,
-    title: p.title,
-    image: makeImageUrl(p.image),
-    price: p.price,
-    inBasket: basketModel.has(p.id),
-    category: p.category,
-  }));
-  catalog.setState({ items: viewItems });
+  const nodes: HTMLElement[] = items.map((p) => {
+    const card = new ProductCardView(events, {
+      id: p.id,
+      title: p.title,
+      image: makeImageUrl(p.image),
+      price: p.price,
+      inBasket: basketModel.has(p.id),
+      category: p.category,
+    });
+    return card.render();
+  });
+
+
+  catalog.items = nodes;
   catalog.render();
 });
 
-// 2) корзина изменилась -> обновить счётчик; если открыта корзина — перерисовать её в модалке
+
+
 events.on<{ items: { id: ProductId; title: string; price: number | null }[]; total: number }>(
   'basket:changed',
   ({ items, total }) => {
-    // счётчик в шапке
-    headerCart.setState({ count: items.length });
-    // обновляем состояние вью корзины
-    basketView.setState({
-      items: items.map((i, idx) => ({ ...i, index: idx + 1 } as any)),
-      total,
-    });
-
-    // если модалка открыта и внутри сейчас корзина — подменяем контент
-    const modalRoot = modal.getElement();
-    const isOpen = modalRoot.classList.contains('modal_active');
-    const isBasketShown = Boolean(modalRoot.querySelector('.modal__content .basket'));
-    if (isOpen && isBasketShown) {
-      modal.setContent(basketView.render());
+    headerCart.render({ count: items.length });
+    if (isBasketOpen) {
+      const nodes = items.map((i, idx) => {
+        const item = new BasketItemView(events);
+        item.render({
+          id: i.id,
+          index: idx + 1,
+          title: i.title,
+          priceText: i.price === null ? 'Бесценно' : `${i.price} синапсов`,
+        });
+        return item.render();
+      });
+      basketView.render({ items: nodes, total });
+      modal.setContent(basketView.render()); 
     }
   }
 );
 
-// 3) изменения заказа 
+
 events.on('order:changed', () => {
+});
+
+events.on('modal/close', () => {
+  isBasketOpen = false;
+  step1View = null;
+  step2View = null;
 });
 
 // -------------------- ПРЕЗЕНТЕР: события VIEW --------------------
@@ -91,6 +114,7 @@ events.on('order:changed', () => {
 events.on<{ id: string }>('product/open', ({ id }) => {
   const p = productsModel.getById(id);
   if (!p) return;
+
   const preview = new ProductPreviewView(events, {
     id: p.id,
     title: p.title,
@@ -115,7 +139,7 @@ events.on<{ id: ProductId }>('product/remove', ({ id }) => {
   basketModel.remove(id);
 });
 
-// удалить товар по нажатию
+// удалить товар по нажатию (из BasketItemView)
 events.on<{ id: string }>('basket/remove', ({ id }) => {
   basketModel.remove(id);
 });
@@ -123,30 +147,82 @@ events.on<{ id: string }>('basket/remove', ({ id }) => {
 // открыть корзину
 events.on('basket/open', () => {
   const state = basketModel.getState();
-  basketView.setState({
-    items: state.items.map((i, idx) => ({ ...i, index: idx + 1 } as any)),
-    total: state.total,
+  const nodes = state.items.map((i, idx) => {
+    const item = new BasketItemView(events);
+    item.render({
+      id: i.id,
+      index: idx + 1,
+      title: i.title,
+      priceText: i.price === null ? 'Бесценно' : `${i.price} синапсов`,
+    });
+    return item.render();
   });
+  basketView.render({ items: nodes, total: state.total });
   modal.open(basketView.render());
+  isBasketOpen = true;
 });
 
 // оформить заказ (из корзины)
 events.on('basket/checkout', () => {
-  modal.open(new OrderStep1View(events).render());
+  step1View = new OrderStep1View(events);
+  step1View.render({ payment: orderModel.getDraft().payment, address: orderModel.getDraft().address, canNext: false, errors: [] });
+  modal.open(step1View.render());
+  isBasketOpen = false;
 });
 
-// шаг 1 формы — «Далее»
-events.on<{ data: { payment: 'card' | 'cash'; address: string } }>('order/step1/next', ({ data }) => {
-  orderModel.patchDraft({ payment: data.payment, address: data.address });
-  modal.open(new OrderStep2View(events).render());
+events.on<{ data: { payment?: 'card' | 'cash' | null; address?: string } }>('order/step1/change', ({ data }) => {
+  orderModel.patchDraft({ payment: data.payment ?? undefined, address: data.address ?? undefined });
+  const draft = orderModel.getDraft();
+  const errors = orderModel.validateStep1();
+  const canNext = errors.length === 0;
+
+  if (step1View) {
+    step1View.render({
+      payment: draft.payment ?? null,
+      address: draft.address ?? '',
+      errors,
+      canNext,
+    });
+  }
 });
 
-// шаг 2 формы — «Оплатить»
-events.on<{ data: { email: string; phone: string } }>('order/step2/pay', async ({ data }) => {
-  orderModel.patchDraft({ email: data.email, phone: data.phone });
+// «Далее» на шаге 1
+events.on<{ data: { payment?: 'card' | 'cash' | null; address?: string } }>('order/step1/next', () => {
+  const errors = orderModel.validateStep1();
+  if (errors.length > 0) {
+    step1View?.render({ errors, canNext: false });
+    return;
+  }
+
+  // Открываем шаг 2
+  step2View = new OrderStep2View(events);
+  const d = orderModel.getDraft();
+  step2View.render({ email: d.email ?? '', phone: d.phone ?? '', canPay: false, errors: [] });
+  modal.open(step2View.render());
+  step1View = null;
+});
+
+// Изменения на шаге 2
+events.on<{ data: { email?: string; phone?: string } }>('order/step2/change', ({ data }) => {
+  orderModel.patchDraft({ email: data.email ?? undefined, phone: data.phone ?? undefined });
+  const errors = orderModel.validateStep2();
+  const canPay = errors.length === 0;
+  if (step2View) {
+    step2View.render({ errors, canPay });
+  }
+});
+
+// «Оплатить»
+events.on<{ data: { email?: string; phone?: string } }>('order/step2/pay', async () => {
+  const errors = orderModel.validateStep2();
+  if (errors.length > 0) {
+    step2View?.render({ errors, canPay: false });
+    return;
+  }
 
   const draft = orderModel.getDraft();
   const basket = basketModel.getState();
+
   const payload: IOrderPayload = {
     payment: draft.payment!,
     address: draft.address!,
@@ -159,16 +235,13 @@ events.on<{ data: { email: string; phone: string } }>('order/step2/pay', async (
   try {
     await shopApi.createOrder(payload);
 
-    // попап успеха
-    const tpl = document.getElementById('success') as HTMLTemplateElement;
-    const node = tpl.content.firstElementChild!.cloneNode(true) as HTMLElement;
-    node.querySelector('.order-success__description')!.textContent = `Списано ${basket.total} синапсов`;
-    node
-      .querySelector<HTMLButtonElement>('.order-success__close')!
-      .addEventListener('click', () => modal.close());
-    modal.open(node);
+    const success = new SuccessView();
+    success.setText(`Списано ${basket.total} синапсов`);
+    success.onClose(() => modal.close());
+    modal.open(success.render());
     basketModel.clear();
     orderModel.reset();
+    step2View = null;
   } catch (e) {
     console.error('Не удалось оформить заказ:', e);
   }
@@ -178,7 +251,7 @@ events.on<{ data: { email: string; phone: string } }>('order/step2/pay', async (
 (async () => {
   try {
     const items = await shopApi.getProducts();
-    productsModel.setItems(items);            
+    productsModel.setItems(items);
   } catch (e) {
     console.error('Ошибка загрузки каталога:', e);
   }

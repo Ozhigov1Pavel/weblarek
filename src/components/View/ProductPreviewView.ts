@@ -1,7 +1,5 @@
-// src/components/base/View/ProductPreviewView.ts
-
-import type { IEvents } from '../Events';
-import type { ProductId, Price } from '../../../types';
+import type { IEvents } from '../base/Events';
+import type { ProductId, Price } from '../../types';
 import { cloneTemplate } from './utils';
 import { BaseCardView } from './BaseCardView';
 

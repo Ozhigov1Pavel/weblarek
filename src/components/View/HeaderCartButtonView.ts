@@ -1,12 +1,11 @@
-import { Component } from '../Component';
-import type { IEvents } from '../Events';
+import { Component } from '../base/Component';
+import type { IEvents } from '../base/Events';
 
-type HeaderCartState = { count: number };
+type HeaderCartProps = { count: number };
 
-export class HeaderCartButtonView extends Component<HeaderCartState> {
+export class HeaderCartButtonView extends Component<HeaderCartProps> {
   private root: HTMLButtonElement;
   private counterEl: HTMLElement;
-  private state: HeaderCartState = { count: 0 };
 
   constructor(private readonly events: IEvents) {
     const root = document.querySelector<HTMLButtonElement>('.header__basket');
@@ -17,25 +16,21 @@ export class HeaderCartButtonView extends Component<HeaderCartState> {
     const counter = root.querySelector<HTMLElement>('.header__basket-counter');
     if (!counter) throw new Error('HeaderCartButtonView: .header__basket-counter not found');
     this.counterEl = counter;
+
     this.root.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       this.events.emit('basket/open', {});
     });
-
-    this.apply();
   }
 
-  setState(state: HeaderCartState) {
-    this.state = { count: state.count ?? 0 };
-    this.apply();
+  set count(value: number) {
+    const n = typeof value === 'number' ? value : 0;
+    this.counterEl.textContent = String(n);
   }
 
-  private apply() {
-    this.counterEl.textContent = String(this.state.count);
-  }
-
-  render(): HTMLElement {
+  render(data?: Partial<HeaderCartProps>): HTMLElement {
+    super.render(data);
     return this.root;
   }
 }

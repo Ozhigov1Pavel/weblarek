@@ -1,6 +1,6 @@
-import { Component } from '../Component';
-import type { Price } from '../../../types';
-import { categoryMap } from '../../../utils/constants';
+import { Component } from '../base/Component';
+import type { Price } from '../../types';
+import { categoryMap } from '../../utils/constants';
 
 export abstract class BaseCardView<T> extends Component<T> {
   protected titleEl?: HTMLElement;
